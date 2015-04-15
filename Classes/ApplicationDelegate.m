@@ -23,7 +23,7 @@
 - (id)init {
 	self = [super init];
 	if(self != nil) {
-		self.deviceToken = @"";
+        self.deviceToken = @"e967259e b9622008 89a9d3fb ab3be0c5 e25ef2ab 569f0ae4 850779b8 187be219";
 		self.payload = @"{\"aps\":{\"alert\":\"This is some fancy message.\",\"badge\":1}}";
 		self.certificate = [[NSBundle mainBundle] pathForResource:@"apns" ofType:@"cer"];
 	}
