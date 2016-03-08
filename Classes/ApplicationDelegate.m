@@ -197,6 +197,9 @@
         OSStatus result = SSLWrite(context, &message, (pointer - message), &processed);
         if (result != noErr)
             NSLog(@"SSLWrite(): %d %zd", result, processed);
+    } else {
+        NSAlert * alert = [NSAlert alertWithMessageText:@"format error" defaultButton:@"OK" alternateButton:nil otherButton:nil informativeTextWithFormat:@"device token"];
+        [alert beginSheetModalForWindow:[[NSApplication sharedApplication] keyWindow] completionHandler:NULL];
     }
 }
 
