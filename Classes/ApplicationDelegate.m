@@ -14,7 +14,7 @@
     otSocket socket;
     SSLContextRef contextRef;
     SecKeychainRef keychainRef;
-    SecCertificateRef certificateRef;
+    SecCertificateRef _certificateRef;
     SecIdentityRef identityRef;
 }
 #pragma mark Properties
@@ -62,15 +62,75 @@
 #pragma mark Inherent
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
-	[self connect];
+	
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
-	[self disconnect];
+	
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)application {
 	return YES;
+}
+
+- (NSString*)stringFromCerificateWithLongwindedDescription:(SecCertificateRef) certificateRef {
+    if (certificateRef == NULL)
+        return @"";
+    
+    CFStringRef commonNameRef;
+    OSStatus status;
+    if ((status=SecCertificateCopyCommonName(certificateRef, &commonNameRef)) != errSecSuccess) {
+        NSLog(@"Could not extract name from cert: %@",
+              SecCopyErrorMessageString(status, NULL));
+        return @"Unreadable cert";
+    };
+    
+    CFStringRef summaryRef = SecCertificateCopySubjectSummary(certificateRef);
+    if (summaryRef == NULL)
+        summaryRef = CFRetain(commonNameRef);
+    
+    CFErrorRef error;
+    
+    const void *keys[] = { kSecOIDX509V1SubjectName, kSecOIDX509V1IssuerName };
+    const void *labels[] = { "Subject", "Issuer" };
+    CFArrayRef keySelection = CFArrayCreate(NULL, keys , sizeof(keys)/sizeof(keys[0]), &kCFTypeArrayCallBacks);
+    
+    CFDictionaryRef vals = SecCertificateCopyValues(certificateRef, keySelection,&error);
+    NSMutableString *longDesc = [[NSMutableString alloc] init];
+    
+    for(int i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
+        CFDictionaryRef dict = CFDictionaryGetValue(vals, keys[i]);
+        CFArrayRef values = CFDictionaryGetValue(dict, kSecPropertyKeyValue);
+        if (values == NULL)
+            continue;
+        [longDesc appendFormat:@"%s:%@\n\n", labels[i], [self stringFromDNwithSubjectName:values]];
+    }
+    
+    CFRelease(vals);
+    CFRelease(summaryRef);
+    CFRelease(commonNameRef);
+    
+    return longDesc;
+}
+
+- (NSString *)stringFromDNwithSubjectName:(CFArrayRef)array {
+    NSMutableString * out = [[NSMutableString alloc] init];
+    const void *keys[] = { kSecOIDCommonName, kSecOIDEmailAddress, kSecOIDOrganizationalUnitName, kSecOIDOrganizationName, kSecOIDLocalityName, kSecOIDStateProvinceName, kSecOIDCountryName };
+    const void *labels[] = { "CN", "E", "OU", "O", "L", "S", "C", "E" };
+    
+    for(int i = 0; i < sizeof(*keys) - 1;  i++) {
+        for (CFIndex n = 0 ; n < CFArrayGetCount(array); n++) {
+            CFDictionaryRef dict = CFArrayGetValueAtIndex(array, n);
+            if (CFGetTypeID(dict) != CFDictionaryGetTypeID())
+                continue;
+            CFTypeRef dictkey = CFDictionaryGetValue(dict, kSecPropertyKeyLabel);
+            if (!CFEqual(dictkey, keys[i]))
+                continue;
+            CFStringRef str = (CFStringRef) CFDictionaryGetValue(dict, kSecPropertyKeyValue);
+            [out appendFormat:@"%s=%@ ", labels[i], (__bridge NSString*)str];
+        }
+    }
+    return [NSString stringWithString:out];
 }
 
 #pragma mark Private
@@ -81,12 +141,21 @@
 		return;
 	}
 	
+    // Create certificate.
+    NSData *certificateData = [NSData dataWithContentsOfFile:self.certificate];
+    
+    _certificateRef = SecCertificateCreateWithData(kCFAllocatorDefault, (CFDataRef)certificateData);
+    BOOL sandbox = [[[self stringFromCerificateWithLongwindedDescription:_certificateRef] lowercaseString] containsString:@"development"];
+    const char *hostName = sandbox?"gateway.sandbox.push.apple.com":"gateway.push.apple.com";
+    if (_certificateRef == NULL)
+        NSLog (@"SecCertificateCreateWithData failled");
+    
 	// Define result variable.
 	OSStatus result;
 	
 	// Establish connection to server.
 	PeerSpec peer;
-	result = MakeServerConnection("gateway.sandbox.push.apple.com", 2195, &socket, &peer);// NSLog(@"MakeServerConnection(): %d", result);
+	result = MakeServerConnection(hostName, 2195, &socket, &peer);// NSLog(@"MakeServerConnection(): %d", result);
 	
 	// Create new SSL context.
 	result = SSLNewContext(false, &contextRef);// NSLog(@"SSLNewContext(): %d", result);
@@ -98,20 +167,13 @@
 	result = SSLSetConnection(contextRef, socket);// NSLog(@"SSLSetConnection(): %d", result);
 	
 	// Set server domain name.
-	result = SSLSetPeerDomainName(contextRef, "gateway.sandbox.push.apple.com", 30);// NSLog(@"SSLSetPeerDomainName(): %d", result);
+	result = SSLSetPeerDomainName(contextRef, hostName, 30);// NSLog(@"SSLSetPeerDomainName(): %d", result);
 	
 	// Open keychain.
 	result = SecKeychainCopyDefault(&keychainRef);// NSLog(@"SecKeychainOpen(): %d", result);
-	
-	// Create certificate.
-	NSData *certificateData = [NSData dataWithContentsOfFile:self.certificate];
-    
-    certificateRef = SecCertificateCreateWithData(kCFAllocatorDefault, (CFDataRef)certificateData);
-    if (certificateRef == NULL)
-        NSLog (@"SecCertificateCreateWithData failled");
     
 	// Create identity.
-	result = SecIdentityCreateWithCertificate(keychainRef, certificateRef, &identityRef);// NSLog(@"SecIdentityCreateWithCertificate(): %d", result);
+	result = SecIdentityCreateWithCertificate(keychainRef, _certificateRef, &identityRef);// NSLog(@"SecIdentityCreateWithCertificate(): %d", result);
 	
 	// Set client certificate.
 	CFArrayRef certificates = CFArrayCreate(NULL, (const void **)&identityRef, 1, NULL);
@@ -142,8 +204,8 @@
         CFRelease(identityRef);
 	
 	// Release certificate.
-    if (certificateRef != NULL)
-        CFRelease(certificateRef);
+    if (_certificateRef != NULL)
+        CFRelease(_certificateRef);
 	
 	// Release keychain.
     if (keychainRef != NULL)
@@ -160,7 +222,8 @@
 #pragma mark IBAction
 
 - (IBAction)push:(id)sender {
-	
+	[self disconnect];
+    [self connect];
 	if(self.certificate == nil) {
         NSLog(@"you need the APNS Certificate for the app to work");
         exit(1);
