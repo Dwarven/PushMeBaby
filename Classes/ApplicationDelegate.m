@@ -10,18 +10,18 @@
 #import "ioSock.h"
 
 @interface ApplicationDelegate () {
-    NSString *_deviceToken, *_payload, *_certificate;
-    otSocket socket;
-    SSLContextRef contextRef;
-    SecKeychainRef keychainRef;
+    NSString *_deviceToken, *_payload;
+    otSocket _socket;
+    SSLContextRef _contextRef;
+    SecKeychainRef _keychainRef;
     SecCertificateRef _certificateRef;
-    SecIdentityRef identityRef;
+    SecIdentityRef _identityRef;
+    BOOL _production;
+    NSString * _certificatePath;
 }
 #pragma mark Properties
-@property(nonatomic, retain) NSString *deviceToken, *payload, *certificate;
-#pragma mark Private
-- (void)connect;
-- (void)disconnect;
+@property(nonatomic, retain) NSString *deviceToken, *payload;
+
 @end
 
 @implementation ApplicationDelegate
@@ -35,7 +35,7 @@
         // or
         self.deviceToken = @"e967259eb962200889a9d3fbab3be0c5e25ef2ab569f0ae4850779b8187be219";
 		self.payload = @"{\"aps\":{\"alert\":\"This is some fancy message.\",\"badge\":1}}";
-		self.certificate = [[NSBundle mainBundle] pathForResource:@"apns" ofType:@"cer"];
+//		self.payload = @"{\"aps\":{\"alert\":\"This is some fancy message.\",\"sound\":\"sound\",\"badge\":1,\"content-available\":\"1\"}}";
 	}
 	return self;
 }
@@ -45,7 +45,6 @@
 	// Release objects.
 	self.deviceToken = nil;
 	self.payload = nil;
-	self.certificate = nil;
 	
 	// Call super.
 	[super dealloc];
@@ -57,7 +56,6 @@
 
 @synthesize deviceToken = _deviceToken;
 @synthesize payload = _payload;
-@synthesize certificate = _certificate;
 
 #pragma mark Inherent
 
@@ -73,80 +71,22 @@
 	return YES;
 }
 
-- (NSString*)stringFromCerificateWithLongwindedDescription:(SecCertificateRef) certificateRef {
-    if (certificateRef == NULL)
-        return @"";
-    
-    CFStringRef commonNameRef;
-    OSStatus status;
-    if ((status=SecCertificateCopyCommonName(certificateRef, &commonNameRef)) != errSecSuccess) {
-        NSLog(@"Could not extract name from cert: %@",
-              SecCopyErrorMessageString(status, NULL));
-        return @"Unreadable cert";
-    };
-    
-    CFStringRef summaryRef = SecCertificateCopySubjectSummary(certificateRef);
-    if (summaryRef == NULL)
-        summaryRef = CFRetain(commonNameRef);
-    
-    CFErrorRef error;
-    
-    const void *keys[] = { kSecOIDX509V1SubjectName, kSecOIDX509V1IssuerName };
-    const void *labels[] = { "Subject", "Issuer" };
-    CFArrayRef keySelection = CFArrayCreate(NULL, keys , sizeof(keys)/sizeof(keys[0]), &kCFTypeArrayCallBacks);
-    
-    CFDictionaryRef vals = SecCertificateCopyValues(certificateRef, keySelection,&error);
-    NSMutableString *longDesc = [[NSMutableString alloc] init];
-    
-    for(int i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
-        CFDictionaryRef dict = CFDictionaryGetValue(vals, keys[i]);
-        CFArrayRef values = CFDictionaryGetValue(dict, kSecPropertyKeyValue);
-        if (values == NULL)
-            continue;
-        [longDesc appendFormat:@"%s:%@\n\n", labels[i], [self stringFromDNwithSubjectName:values]];
-    }
-    
-    CFRelease(vals);
-    CFRelease(summaryRef);
-    CFRelease(commonNameRef);
-    
-    return longDesc;
-}
-
-- (NSString *)stringFromDNwithSubjectName:(CFArrayRef)array {
-    NSMutableString * out = [[NSMutableString alloc] init];
-    const void *keys[] = { kSecOIDCommonName, kSecOIDEmailAddress, kSecOIDOrganizationalUnitName, kSecOIDOrganizationName, kSecOIDLocalityName, kSecOIDStateProvinceName, kSecOIDCountryName };
-    const void *labels[] = { "CN", "E", "OU", "O", "L", "S", "C", "E" };
-    
-    for(int i = 0; i < sizeof(*keys) - 1;  i++) {
-        for (CFIndex n = 0 ; n < CFArrayGetCount(array); n++) {
-            CFDictionaryRef dict = CFArrayGetValueAtIndex(array, n);
-            if (CFGetTypeID(dict) != CFDictionaryGetTypeID())
-                continue;
-            CFTypeRef dictkey = CFDictionaryGetValue(dict, kSecPropertyKeyLabel);
-            if (!CFEqual(dictkey, keys[i]))
-                continue;
-            CFStringRef str = (CFStringRef) CFDictionaryGetValue(dict, kSecPropertyKeyValue);
-            [out appendFormat:@"%s=%@ ", labels[i], (__bridge NSString*)str];
-        }
-    }
-    return [NSString stringWithString:out];
-}
-
 #pragma mark Private
 
 - (void)connect {
-	
-	if(self.certificate == nil) {
-		return;
-	}
-	
+    
+    _certificatePath = _production?[[NSBundle mainBundle] pathForResource:@"aps" ofType:@"cer"]:[[NSBundle mainBundle] pathForResource:@"aps_development" ofType:@"cer"];
+    
+    if (![[NSFileManager defaultManager] fileExistsAtPath:_certificatePath]) {
+        return;
+    }
+    
+    const char *hostName = _production?"gateway.push.apple.com":"gateway.sandbox.push.apple.com";
+    
     // Create certificate.
-    NSData *certificateData = [NSData dataWithContentsOfFile:self.certificate];
+    NSData *certificateData = [NSData dataWithContentsOfFile:_certificatePath];
     
     _certificateRef = SecCertificateCreateWithData(kCFAllocatorDefault, (CFDataRef)certificateData);
-    BOOL sandbox = [[[self stringFromCerificateWithLongwindedDescription:_certificateRef] lowercaseString] containsString:@"development"];
-    const char *hostName = sandbox?"gateway.sandbox.push.apple.com":"gateway.push.apple.com";
     if (_certificateRef == NULL)
         NSLog (@"SecCertificateCreateWithData failled");
     
@@ -155,41 +95,41 @@
 	
 	// Establish connection to server.
 	PeerSpec peer;
-	result = MakeServerConnection(hostName, 2195, &socket, &peer);// NSLog(@"MakeServerConnection(): %d", result);
+	result = MakeServerConnection(hostName, 2195, &_socket, &peer);// NSLog(@"MakeServerConnection(): %d", result);
 	
 	// Create new SSL context.
-	result = SSLNewContext(false, &contextRef);// NSLog(@"SSLNewContext(): %d", result);
+	result = SSLNewContext(false, &_contextRef);// NSLog(@"SSLNewContext(): %d", result);
 	
 	// Set callback functions for SSL context.
-	result = SSLSetIOFuncs(contextRef, SocketRead, SocketWrite);// NSLog(@"SSLSetIOFuncs(): %d", result);
+	result = SSLSetIOFuncs(_contextRef, SocketRead, SocketWrite);// NSLog(@"SSLSetIOFuncs(): %d", result);
 	
 	// Set SSL context connection.
-	result = SSLSetConnection(contextRef, socket);// NSLog(@"SSLSetConnection(): %d", result);
+	result = SSLSetConnection(_contextRef, _socket);// NSLog(@"SSLSetConnection(): %d", result);
 	
 	// Set server domain name.
-	result = SSLSetPeerDomainName(contextRef, hostName, 30);// NSLog(@"SSLSetPeerDomainName(): %d", result);
+	result = SSLSetPeerDomainName(_contextRef, hostName, 30);// NSLog(@"SSLSetPeerDomainName(): %d", result);
 	
 	// Open keychain.
-	result = SecKeychainCopyDefault(&keychainRef);// NSLog(@"SecKeychainOpen(): %d", result);
+	result = SecKeychainCopyDefault(&_keychainRef);// NSLog(@"SecKeychainOpen(): %d", result);
     
 	// Create identity.
-	result = SecIdentityCreateWithCertificate(keychainRef, _certificateRef, &identityRef);// NSLog(@"SecIdentityCreateWithCertificate(): %d", result);
+	result = SecIdentityCreateWithCertificate(_keychainRef, _certificateRef, &_identityRef);// NSLog(@"SecIdentityCreateWithCertificate(): %d", result);
 	
 	// Set client certificate.
-	CFArrayRef certificates = CFArrayCreate(NULL, (const void **)&identityRef, 1, NULL);
-	result = SSLSetCertificate(contextRef, certificates);// NSLog(@"SSLSetCertificate(): %d", result);
+	CFArrayRef certificates = CFArrayCreate(NULL, (const void **)&_identityRef, 1, NULL);
+	result = SSLSetCertificate(_contextRef, certificates);// NSLog(@"SSLSetCertificate(): %d", result);
 	CFRelease(certificates);
 	
 	// Perform SSL handshake.
 	do {
-		result = SSLHandshake(contextRef);// NSLog(@"SSLHandshake(): %d", result);
+		result = SSLHandshake(_contextRef);// NSLog(@"SSLHandshake(): %d", result);
 	} while(result == errSSLWouldBlock);
 	
 }
 
 - (void)disconnect {
 	
-	if(self.certificate == nil) {
+	if(![[NSFileManager defaultManager] fileExistsAtPath:_certificatePath]) {
 		return;
 	}
 	
@@ -197,26 +137,30 @@
 	OSStatus result;
 	
 	// Close SSL session.
-	result = SSLClose(contextRef);// NSLog(@"SSLClose(): %d", result);
+	result = SSLClose(_contextRef);// NSLog(@"SSLClose(): %d", result);
 	
 	// Release identity.
-    if (identityRef != NULL)
-        CFRelease(identityRef);
+    if (_identityRef != NULL)
+        CFRelease(_identityRef);
 	
 	// Release certificate.
     if (_certificateRef != NULL)
         CFRelease(_certificateRef);
 	
 	// Release keychain.
-    if (keychainRef != NULL)
-        CFRelease(keychainRef);
+    if (_keychainRef != NULL)
+        CFRelease(_keychainRef);
 	
 	// Close connection to server.
-	close((int)socket);
+	close((int)_socket);
 	
 	// Delete SSL context.
-	result = SSLDisposeContext(contextRef);// NSLog(@"SSLDisposeContext(): %d", result);
+	result = SSLDisposeContext(_contextRef);// NSLog(@"SSLDisposeContext(): %d", result);
 	
+}
+
+- (IBAction)didPerformPick:(id)sender {
+    _production = [(NSPopUpButton*)sender indexOfSelectedItem] == 1;
 }
 
 #pragma mark IBAction
@@ -224,11 +168,11 @@
 - (IBAction)push:(id)sender {
 	[self disconnect];
     [self connect];
-	if(self.certificate == nil) {
-        NSLog(@"you need the APNS Certificate for the app to work");
-        exit(1);
-	}
-	
+    if (![[NSFileManager defaultManager] fileExistsAtPath:_certificatePath]) {
+        NSAlert * alert = [NSAlert alertWithMessageText:@"APNs Certificate error" defaultButton:@"OK" alternateButton:nil otherButton:nil informativeTextWithFormat:@"You need the APNs Certificate for the app to work.\n\nDevelopment:\naps_development.cer\n\nProduction:\naps.cer"];
+        [alert beginSheetModalForWindow:[[NSApplication sharedApplication] keyWindow] completionHandler:NULL];
+        return;
+    }
 	// Validate input.
 	if(self.deviceToken == nil || self.payload == nil) {
 		return;
@@ -265,7 +209,7 @@
         
         // Send message over SSL.
         size_t processed = 0;
-        OSStatus result = SSLWrite(contextRef, &message, (pointer - message), &processed);
+        OSStatus result = SSLWrite(_contextRef, &message, (pointer - message), &processed);
         if (result != noErr)
             NSLog(@"SSLWrite(): %d %zd", result, processed);
     } else {
