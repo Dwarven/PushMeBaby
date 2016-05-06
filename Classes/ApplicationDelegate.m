@@ -129,10 +129,6 @@
 
 - (void)disconnect {
 	
-	if(![[NSFileManager defaultManager] fileExistsAtPath:_certificatePath]) {
-		return;
-	}
-	
 	// Define result variable.
 	OSStatus result;
 	
