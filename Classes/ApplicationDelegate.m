@@ -7,8 +7,16 @@
 //
 
 #import "ApplicationDelegate.h"
+#import "ioSock.h"
 
-@interface ApplicationDelegate ()
+@interface ApplicationDelegate () {
+    NSString *_deviceToken, *_payload, *_certificate;
+    otSocket socket;
+    SSLContextRef contextRef;
+    SecKeychainRef keychainRef;
+    SecCertificateRef certificateRef;
+    SecIdentityRef identityRef;
+}
 #pragma mark Properties
 @property(nonatomic, retain) NSString *deviceToken, *payload, *certificate;
 #pragma mark Private
@@ -81,38 +89,38 @@
 	result = MakeServerConnection("gateway.sandbox.push.apple.com", 2195, &socket, &peer);// NSLog(@"MakeServerConnection(): %d", result);
 	
 	// Create new SSL context.
-	result = SSLNewContext(false, &context);// NSLog(@"SSLNewContext(): %d", result);
+	result = SSLNewContext(false, &contextRef);// NSLog(@"SSLNewContext(): %d", result);
 	
 	// Set callback functions for SSL context.
-	result = SSLSetIOFuncs(context, SocketRead, SocketWrite);// NSLog(@"SSLSetIOFuncs(): %d", result);
+	result = SSLSetIOFuncs(contextRef, SocketRead, SocketWrite);// NSLog(@"SSLSetIOFuncs(): %d", result);
 	
 	// Set SSL context connection.
-	result = SSLSetConnection(context, socket);// NSLog(@"SSLSetConnection(): %d", result);
+	result = SSLSetConnection(contextRef, socket);// NSLog(@"SSLSetConnection(): %d", result);
 	
 	// Set server domain name.
-	result = SSLSetPeerDomainName(context, "gateway.sandbox.push.apple.com", 30);// NSLog(@"SSLSetPeerDomainName(): %d", result);
+	result = SSLSetPeerDomainName(contextRef, "gateway.sandbox.push.apple.com", 30);// NSLog(@"SSLSetPeerDomainName(): %d", result);
 	
 	// Open keychain.
-	result = SecKeychainCopyDefault(&keychain);// NSLog(@"SecKeychainOpen(): %d", result);
+	result = SecKeychainCopyDefault(&keychainRef);// NSLog(@"SecKeychainOpen(): %d", result);
 	
 	// Create certificate.
 	NSData *certificateData = [NSData dataWithContentsOfFile:self.certificate];
     
-    certificate = SecCertificateCreateWithData(kCFAllocatorDefault, (CFDataRef)certificateData);
-    if (certificate == NULL)
+    certificateRef = SecCertificateCreateWithData(kCFAllocatorDefault, (CFDataRef)certificateData);
+    if (certificateRef == NULL)
         NSLog (@"SecCertificateCreateWithData failled");
     
 	// Create identity.
-	result = SecIdentityCreateWithCertificate(keychain, certificate, &identity);// NSLog(@"SecIdentityCreateWithCertificate(): %d", result);
+	result = SecIdentityCreateWithCertificate(keychainRef, certificateRef, &identityRef);// NSLog(@"SecIdentityCreateWithCertificate(): %d", result);
 	
 	// Set client certificate.
-	CFArrayRef certificates = CFArrayCreate(NULL, (const void **)&identity, 1, NULL);
-	result = SSLSetCertificate(context, certificates);// NSLog(@"SSLSetCertificate(): %d", result);
+	CFArrayRef certificates = CFArrayCreate(NULL, (const void **)&identityRef, 1, NULL);
+	result = SSLSetCertificate(contextRef, certificates);// NSLog(@"SSLSetCertificate(): %d", result);
 	CFRelease(certificates);
 	
 	// Perform SSL handshake.
 	do {
-		result = SSLHandshake(context);// NSLog(@"SSLHandshake(): %d", result);
+		result = SSLHandshake(contextRef);// NSLog(@"SSLHandshake(): %d", result);
 	} while(result == errSSLWouldBlock);
 	
 }
@@ -127,25 +135,25 @@
 	OSStatus result;
 	
 	// Close SSL session.
-	result = SSLClose(context);// NSLog(@"SSLClose(): %d", result);
+	result = SSLClose(contextRef);// NSLog(@"SSLClose(): %d", result);
 	
 	// Release identity.
-    if (identity != NULL)
-        CFRelease(identity);
+    if (identityRef != NULL)
+        CFRelease(identityRef);
 	
 	// Release certificate.
-    if (certificate != NULL)
-        CFRelease(certificate);
+    if (certificateRef != NULL)
+        CFRelease(certificateRef);
 	
 	// Release keychain.
-    if (keychain != NULL)
-        CFRelease(keychain);
+    if (keychainRef != NULL)
+        CFRelease(keychainRef);
 	
 	// Close connection to server.
 	close((int)socket);
 	
 	// Delete SSL context.
-	result = SSLDisposeContext(context);// NSLog(@"SSLDisposeContext(): %d", result);
+	result = SSLDisposeContext(contextRef);// NSLog(@"SSLDisposeContext(): %d", result);
 	
 }
 
@@ -194,7 +202,7 @@
         
         // Send message over SSL.
         size_t processed = 0;
-        OSStatus result = SSLWrite(context, &message, (pointer - message), &processed);
+        OSStatus result = SSLWrite(contextRef, &message, (pointer - message), &processed);
         if (result != noErr)
             NSLog(@"SSLWrite(): %d %zd", result, processed);
     } else {

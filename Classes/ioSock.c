@@ -186,7 +186,7 @@ OSStatus MakeServerConnection(
     struct sockaddr_in  addr;
 	struct hostent      *ent;
     struct in_addr      host;
-	int					sock = 0;
+	intptr_t			sock = 0;
 	
 	*socketNo = NULL;
     if (hostName[0] >= '0' && hostName[0] <= '9')
@@ -239,7 +239,7 @@ OSStatus ListenForClients(
 	struct sockaddr_in  addr;
     struct hostent      *ent;
     int                 len;
-	int 				sock;
+	intptr_t			sock;
 	
     sock = socket(AF_INET, SOCK_STREAM, 0);
 	if(sock < 1) {
@@ -287,8 +287,8 @@ OSStatus AcceptClientConnection(
 	PeerSpec *peer)				// RETURNED
 {  
 	struct sockaddr_in  addr;
-	int					sock;
-    socklen_t            len;
+	intptr_t			sock;
+    socklen_t           len;
 	
     len = sizeof(struct sockaddr_in);
     sock = accept((int)listenSock, (struct sockaddr *) &addr, &len);
