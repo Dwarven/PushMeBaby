@@ -7,9 +7,37 @@ You can use this app during iOS Push Notification (development or production) to
 # Preview
 ![Screenshot0](https://raw.githubusercontent.com/Dwarven/PushMeBaby/master/Screenshots/Screenshot0.png)
 ![Screenshot1](https://raw.githubusercontent.com/Dwarven/PushMeBaby/master/Screenshots/Screenshot1.png)
+![Screenshot1](https://raw.githubusercontent.com/Dwarven/PushMeBaby/master/Screenshots/Screenshot2.png)
 
 # How to use 
-1. Replace the `aps.cer` and the `aps_development.cer` with your app certificates.
+1. Replace the `cer`s with your app certificates.
+
+```
+//APP 0
+aps0.cer
+aps_development0.cer
+
+//APP 1
+aps1.cer
+aps_development1.cer
+
+//APP 2
+aps2.cer
+aps_development2.cer
+
+//APP 3
+aps3.cer
+aps_development3.cer
+
+//APP 4
+aps4.cer
+aps_development4.cer
+
+//APP 5
+aps5.cer
+aps_development5.cer
+```
+
 2. Guaranteed keychain has the corresponding private keys in your Mac.
 3. Run!
 
