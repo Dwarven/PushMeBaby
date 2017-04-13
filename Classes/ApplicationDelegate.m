@@ -16,6 +16,9 @@
     SecKeychainRef _keychainRef;
     SecCertificateRef _certificateRef;
     SecIdentityRef _identityRef;
+    NSString * _aps;
+    NSString * _apsDevelopment;
+    NSInteger _app;
     BOOL _production;
     NSString * _certificatePath;
 }
@@ -30,7 +33,9 @@
 
 - (id)init {
 	self = [super init];
-	if(self != nil) {
+    if(self != nil) {
+        _aps = [NSString stringWithFormat:@"aps%ld", (long)_app];
+        _apsDevelopment = [NSString stringWithFormat:@"aps_development%ld", (long)_app];
         self.deviceToken = @"e967259e b9622008 89a9d3fb ab3be0c5 e25ef2ab 569f0ae4 850779b8 187be219";
         // or
         self.deviceToken = @"e967259eb962200889a9d3fbab3be0c5e25ef2ab569f0ae4850779b8187be219";
@@ -45,6 +50,8 @@
 	// Release objects.
 	self.deviceToken = nil;
 	self.payload = nil;
+    _aps = nil;
+    _apsDevelopment = nil;
 	
 	// Call super.
 	[super dealloc];
@@ -74,8 +81,9 @@
 #pragma mark Private
 
 - (void)connect {
-    
-    _certificatePath = _production?[[NSBundle mainBundle] pathForResource:@"aps" ofType:@"cer"]:[[NSBundle mainBundle] pathForResource:@"aps_development" ofType:@"cer"];
+    _aps = [NSString stringWithFormat:@"aps%ld", (long)_app];
+    _apsDevelopment = [NSString stringWithFormat:@"aps_development%ld", (long)_app];
+    _certificatePath = _production?[[NSBundle mainBundle] pathForResource:_aps ofType:@"cer"]:[[NSBundle mainBundle] pathForResource:[NSString stringWithFormat:_apsDevelopment, (long)_app] ofType:@"cer"];
     
     if (![[NSFileManager defaultManager] fileExistsAtPath:_certificatePath]) {
         return;
@@ -87,8 +95,12 @@
     NSData *certificateData = [NSData dataWithContentsOfFile:_certificatePath];
     
     _certificateRef = SecCertificateCreateWithData(kCFAllocatorDefault, (CFDataRef)certificateData);
-    if (_certificateRef == NULL)
+    if (_certificateRef == NULL) {
         NSLog (@"SecCertificateCreateWithData failled");
+        NSAlert * alert = [NSAlert alertWithMessageText:@"Your APNs Certificate is invalid" defaultButton:@"OK" alternateButton:nil otherButton:nil informativeTextWithFormat:@"%@", [_certificatePath lastPathComponent]];
+        [alert beginSheetModalForWindow:[[NSApplication sharedApplication] keyWindow] completionHandler:NULL];
+        return;
+    }
     
 	// Define result variable.
 	OSStatus result;
@@ -155,8 +167,12 @@
 	
 }
 
-- (IBAction)didPerformPick:(id)sender {
-    _production = [(NSPopUpButton*)sender indexOfSelectedItem] == 1;
+- (IBAction)pickConfiguration:(NSPopUpButton*)sender {
+    _production = [sender indexOfSelectedItem] == 1;
+}
+
+- (IBAction)pickApp:(NSPopUpButton*)sender {
+    _app = [sender indexOfSelectedItem];
 }
 
 #pragma mark IBAction
@@ -165,12 +181,12 @@
 	[self disconnect];
     [self connect];
     if (![[NSFileManager defaultManager] fileExistsAtPath:_certificatePath]) {
-        NSAlert * alert = [NSAlert alertWithMessageText:@"APNs Certificate error" defaultButton:@"OK" alternateButton:nil otherButton:nil informativeTextWithFormat:@"You need the APNs Certificate for the app to work.\n\nDevelopment:\naps_development.cer\n\nProduction:\naps.cer"];
+        NSAlert * alert = [NSAlert alertWithMessageText:@"APNs Certificate error" defaultButton:@"OK" alternateButton:nil otherButton:nil informativeTextWithFormat:@"You need the APNs Certificate for the app to work.\n\nDevelopment:\n%@.cer\n\nProduction:\n%@.cer", _apsDevelopment, _aps];
         [alert beginSheetModalForWindow:[[NSApplication sharedApplication] keyWindow] completionHandler:NULL];
         return;
     }
 	// Validate input.
-	if(self.deviceToken == nil || self.payload == nil) {
+	if(self.deviceToken == nil || self.payload == nil || _certificateRef == NULL) {
 		return;
 	}
     NSString * deviceTokenHex = [[[self.deviceToken
