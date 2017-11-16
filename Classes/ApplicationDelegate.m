@@ -126,6 +126,13 @@
     
 	// Create identity.
 	result = SecIdentityCreateWithCertificate(_keychainRef, _certificateRef, &_identityRef);// NSLog(@"SecIdentityCreateWithCertificate(): %d", result);
+    
+    if (errSecItemNotFound == result) {
+        NSLog (@"SecIdentityCreateWithCertificate errSecItemNotFound");
+        NSAlert * alert = [NSAlert alertWithMessageText:@"Certificates error" defaultButton:@"OK" alternateButton:nil otherButton:nil informativeTextWithFormat:@"Verify that the local keychain has the corresponding certificates and private keys on your Mac."];
+        [alert beginSheetModalForWindow:[[NSApplication sharedApplication] keyWindow] completionHandler:NULL];
+        return;
+    }
 	
 	// Set client certificate.
 	CFArrayRef certificates = CFArrayCreate(NULL, (const void **)&_identityRef, 1, NULL);
