@@ -38,7 +38,7 @@ aps5.cer
 aps_development5.cer
 ```
 
-2. Guaranteed keychain has the corresponding private keys in your Mac.
+2. Verify that the local keychain has the corresponding certificates and private keys on your Mac.
 3. Run!
 
 ***Enjoy~!***
